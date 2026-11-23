@@ -29,6 +29,11 @@ from PIL import Image
 from depth_pro_2 import create_model_and_transforms
 
 MAX_DEPTH_M = 120.0  # clip predictions (sky is inf) before logging
+LIDAR_ROLES = (  # (entity name, color, radius) for 3D LiDAR points
+    ("outside_fov", [150, 150, 150], 0.03),  # behind the camera or outside the image
+    ("used_as_gt", [40, 200, 90], 0.05),  # in front of the camera and inside the image
+)
+METRIC_KEYS = ("abs_rel", "delta1", "scale_gt_over_pred")
 
 
 # ---------------------------------------------------------------- nuScenes helpers
@@ -105,6 +110,29 @@ class NuScenes:
     def load_lidar(self, sd) -> np.ndarray:
         pts = np.fromfile(self.root / sd["filename"], dtype=np.float32).reshape(-1, 5)
         return pts[:, :3]
+
+
+# ---------------------------------------------------------------- LiDAR ground truth
+def project_lidar(nusc: "NuScenes", cam_sd, lidar_sd, K: np.ndarray, W: int, H: int):
+    """LiDAR sweep -> global -> camera (at the camera's timestamp, so ego motion is compensated).
+
+    Only physical limits are applied: a point is kept if it is in front of the camera (z > 1 m;
+    points behind would otherwise project mirrored into the image) and lands inside the image.
+    Returns (uv pixels, z = depth along the camera axis) for those points, plus the whole sweep
+    in global coordinates and the indices of the kept points within it.
+    """
+    pts = nusc.load_lidar(lidar_sd)
+    pts_h = np.c_[pts, np.ones(len(pts))]
+    pts_g = (nusc.sensor_to_global(lidar_sd) @ pts_h.T).T
+    pts_c = (np.linalg.inv(nusc.sensor_to_global(cam_sd)) @ pts_g.T).T[:, :3]
+    uvw = (K @ pts_c.T).T
+    uv = uvw[:, :2] / np.maximum(uvw[:, 2:3], 1e-6)
+    keep = (
+        (pts_c[:, 2] > 1.0)
+        & (uv[:, 0] >= 0) & (uv[:, 0] < W - 0.5)
+        & (uv[:, 1] >= 0) & (uv[:, 1] < H - 0.5)
+    )  # fmt: skip
+    return uv[keep], pts_c[keep, 2], pts_g[:, :3], np.flatnonzero(keep)
 
 
 # ---------------------------------------------------------------- metrics
@@ -203,6 +231,14 @@ def main():
         static=True,
     )
     rr.log(
+        "world/ego/cam_front_fov",
+        rr.Transform3D(
+            translation=cam_calib["translation"], quaternion=rr_quat(cam_calib["rotation"])
+        ),
+        fov_lines(K_s, W, H),
+        static=True,
+    )
+    rr.log(
         "description",
         rr.TextDocument(f"**{scene['name']}** — {scene['description']}", media_type="text/markdown"),
         static=True,
@@ -264,20 +300,11 @@ def main():
         if j > 0 and abs(lidar_ts[j - 1] - sd["timestamp"]) < abs(lidar_ts[j] - sd["timestamp"]):
             j -= 1
         lid = lidars[j]
-        pts = nusc.load_lidar(lid)
-        pts_h = np.c_[pts, np.ones(len(pts))]
-        pts_g = (nusc.sensor_to_global(lid) @ pts_h.T).T
-        rr.log(
-            "world/lidar",
-            rr.Points3D(pts_g[:, :3], colors=[200, 200, 200], radii=0.04),
-        )
-        pts_c = (np.linalg.inv(nusc.sensor_to_global(sd)) @ pts_g.T).T[:, :3]
-        front = pts_c[:, 2] > 1.0
-        pts_c = pts_c[front]
-        uvw = (K_s @ pts_c.T).T
-        uv = uvw[:, :2] / uvw[:, 2:3]
-        inside = (uv[:, 0] >= 0) & (uv[:, 0] < W - 0.5) & (uv[:, 1] >= 0) & (uv[:, 1] < H - 0.5)
-        uv, z = uv[inside], pts_c[inside, 2]
+        uv, z, pts_g, in_img = project_lidar(nusc, sd, lid, K_s, W, H)
+        role = np.zeros(len(pts_g), dtype=np.int64)  # 0 = outside the camera view
+        role[in_img] = 1  # 1 = used as ground truth
+        for r, (name, color, radius) in enumerate(LIDAR_ROLES):
+            rr.log(f"world/lidar/{name}", rr.Points3D(pts_g[role == r], colors=color, radii=radius))
         uv_i = np.round(uv).astype(int)
         rr.log(
             f"{cam_path}/lidar_gt",
@@ -288,7 +315,7 @@ def main():
         per_frame.append(m)
         # 0..1-ish error metrics in one chart; large-valued stats in another
         for k, v in m.items():
-            group = "metrics" if k in ("abs_rel", "delta1", "scale_gt_over_pred") else "stats"
+            group = "metrics" if k in METRIC_KEYS else "stats"
             rr.log(f"{group}/{k}", rr.Scalars(v))
         rr.log("stats/focal_px_pred", rr.Scalars(focal))
         rr.log("stats/focal_px_calib", rr.Scalars(float(K_s[0, 0])))
@@ -297,7 +324,7 @@ def main():
             fps = (i + 1) / (time.perf_counter() - t0)
             print(
                 f"[{i + 1}/{len(cams)}] {fps:.2f} fps  focal={focal:.0f}px  "
-                + "  ".join(f"{k}={v:.3f}" for k, v in m.items() if k != "n_points")
+                + "  ".join(f"{k}={m[k]:.3f}" for k in ("abs_rel", "delta1", "rmse_m") if k in m)
             )
 
     dt = time.perf_counter() - t0
@@ -326,6 +353,18 @@ def main():
     print("SUMMARY", json.dumps(summary))
     if not args.spawn and not args.no_rrd:
         print(f"Open with:  .venv/bin/rerun {rrd}")
+
+
+def fov_lines(K: np.ndarray, W: int, H: int, ranges=(10, 20, 40, 80)) -> rr.LineStrips3D:
+    """Camera field of view in the camera frame: 4 edge rays + a rectangle every few meters."""
+    corners = np.array([[0, 0, 1], [W, 0, 1], [W, H, 1], [0, H, 1]], dtype=np.float64)
+    rays = (np.linalg.inv(K) @ corners.T).T  # z = 1
+    far = max(ranges)
+    strips = [np.stack([np.zeros(3), r * far]) for r in rays]
+    strips += [np.vstack([rays * d, rays[:1] * d]) for d in ranges]
+    labels = [None] * 4 + [f"{d} m" for d in ranges]
+    colors = [[255, 200, 0]] * 4 + [[255, 200, 0, 140]] * len(ranges)
+    return rr.LineStrips3D(strips, colors=colors, radii=0.06, labels=labels, show_labels=False)
 
 
 def colorize_inverse_depth(depth: np.ndarray, scale: float) -> np.ndarray:

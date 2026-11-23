@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Depth Pro 2 on nuScenes: technical details</title>
+<style>
+  :root {
+    --ink: #1d1d1f; --muted: #5b5b66; --line: #e3e3ea; --bg: #ffffff; --soft: #f6f6f9;
+    --accent: #c2410c; --good: #15803d; --warn: #a16207; --code: #f2f2f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.45rem; margin: 56px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); letter-spacing: -0.01em; }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p, li { color: var(--ink); }
+  .lead { color: var(--muted); font-size: 1.08rem; margin-top: 0; }
+  .meta { color: var(--muted); font-size: 0.9rem; }
+  a { color: var(--accent); }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 0.9em;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-size: 0.86rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.best td { background: #f0fdf4; }
+  .box { border: 1px solid var(--line); border-left: 4px solid var(--accent); background: var(--soft);
+         padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+  .box.assume { border-left-color: var(--warn); }
+  .box.good { border-left-color: var(--good); }
+  .box strong:first-child { display: block; margin-bottom: 4px; }
+  .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+         background: #fef3c7; color: #92400e; margin-right: 6px; vertical-align: 1px; }
+  figure { margin: 20px 0; }
+  figure img, figure svg { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 6px; }
+  nav.toc { background: var(--soft); border-radius: 8px; padding: 14px 20px; margin: 28px 0; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  nav.toc li { margin: 2px 0; }
+  .formula { font-family: ui-monospace, Menlo, monospace; background: var(--code); padding: 8px 12px;
+             border-radius: 6px; display: inline-block; margin: 4px 0; }
+  @media (max-width: 640px) { nav.toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Depth Pro 2 on nuScenes front-camera driving data</h1>
+<p class="lead">What we built, how the ground truth and metrics are computed, what we assumed, what
+post-processing we apply, and what we found.</p>
+<p class="meta">Project folder: <code>depthpro2_cars/</code> · Hardware: Apple M3 Max, 64 GB · Last updated: 2026-11-23 · Research use only</p>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#summary">Summary</a></li>
+    <li><a href="#setup">Setup</a></li>
+    <li><a href="#data">Data: nuScenes mini</a></li>
+    <li><a href="#model">Model: Depth Pro 2</a></li>
+    <li><a href="#pipeline">Per-frame pipeline</a></li>
+    <li><a href="#gt">Building the LiDAR ground truth</a></li>
+    <li><a href="#metrics">Metrics</a></li>
+    <li><a href="#post">Post-processing</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#speed">Speed experiments</a></li>
+    <li><a href="#assumptions">Assumptions &amp; limitations</a></li>
+    <li><a href="#removed">What we tried and removed</a></li>
+    <li><a href="#viz">Visualization &amp; video</a></li>
+    <li><a href="#reproduce">Reproduce</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="summary">1. Summary</h2>
+<ul>
+  <li><strong>Goal:</strong> estimate the distance (in meters) of every pixel from a single car
+    front camera with Apple's Depth Pro 2, check it against LiDAR, and visualize the result.</li>
+  <li><strong>Best accuracy:</strong> the largest model, <strong>H+</strong>. On the benchmark it
+    gives AbsRel 0.161 and puts 85.5% of LiDAR points within 25% of the true distance.</li>
+  <li><strong>Best speed/accuracy trade-off:</strong> H+ at <strong>half resolution</strong>
+    (800×450). It runs about 11× faster (≈1.3–1.5 frames/s on the M3 Max) with the same accuracy as
+    full resolution on the scene tested.</li>
+  <li><strong>Systematic bias:</strong> every model size places objects about <strong>10–15% too
+    far away</strong>, even with the true calibrated focal length.</li>
+  <li><strong>Weak spot:</strong> night driving. Accuracy drops for every model, most for the
+    smallest one.</li>
+</ul>
+
+<figure>
+  <img src="assets/video_frame.jpg" alt="Input frame on top, Depth Pro 2 colored depth below">
+  <figcaption>A frame from the shared video (<code>out/video/scene-0796_depthpro2-h.mp4</code>): input on
+  top, Depth Pro 2 (H+) below. Dark red = near, yellow/green = middle, blue = far, white = sky.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="setup">2. Setup</h2>
+<table>
+  <tr><th>Item</th><th>Value</th></tr>
+  <tr><td>Machine</td><td>Apple M3 Max, 64 GB unified memory, macOS. Model runs on the Apple GPU (PyTorch <code>mps</code>)</td></tr>
+  <tr><td>Software</td><td>Python 3.12 · PyTorch 2.15.0 · rerun-sdk 0.43.2 · PyAV 19.0.2 · NumPy 2.5 · Pillow 13</td></tr>
+  <tr><td>Model code</td><td><code>ml-depth-pro-2/</code>, Apple's official repository, unmodified, installed in editable mode</td></tr>
+  <tr><td>Weights</td><td>From Apple's CDN into <code>.cache/torch/hub/checkpoints/</code>: S (97 MB), B (386 MB), L (1.3 GB), H+ (3.5 GB), plus the shared field-of-view estimator (94 MB)</td></tr>
+  <tr><td>Precision</td><td>bfloat16 autocast (Apple's default on GPUs)</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="data">3. Data: nuScenes mini</h2>
+<p>nuScenes is a public driving dataset recorded in Boston and Singapore. The <em>mini</em> split has
+10 scenes of about 20 seconds each. We use two of its sensors:</p>
+<table>
+  <tr><th>Sensor</th><th>Details</th><th>Role</th></tr>
+  <tr><td><code>CAM_FRONT</code></td><td>1600×900 JPEG, ~12 Hz. Keyframes (2 Hz) <em>and</em> sweeps, so the full 12 Hz stream is used. Calibrated focal length f<sub>x</sub> ≈ 1266 px</td><td>Model input</td></tr>
+  <tr><td><code>LIDAR_TOP</code></td><td>32-beam spinning LiDAR, 20 Hz, ~35,000 points per sweep</td><td>Ground truth (the "answer key")</td></tr>
+</table>
+<p>For every reading, nuScenes also provides the sensor's <strong>mounting calibration</strong> (where
+it sits on the car) and the car's <strong>pose</strong> (where the car was in the world at that
+instant). On this vehicle the LiDAR is mounted 0.75 m behind and 0.34 m above the front camera.</p>
+
+<h3>Scenes used for the benchmark</h3>
+<table>
+  <tr><th>Scene</th><th>Conditions (from the dataset's description)</th></tr>
+  <tr><td><code>scene-0061</code></td><td>Day. Parked truck, construction, intersection, left turn, following a van</td></tr>
+  <tr><td><code>scene-0655</code></td><td>Day. Parking lot, parked cars, jaywalker, bendy bus</td></tr>
+  <tr><td><code>scene-0796</code></td><td>Day, busy. Scooter, pedestrians, bus, cars, truck, a car overtaking us</td></tr>
+  <tr><td><code>scene-1077</code></td><td>Night. Big street, bus stop, high speed, construction vehicle</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="model">4. Model: Depth Pro 2</h2>
+<p>Depth Pro 2 takes ordinary RGB images and predicts, for every pixel, the <strong>distance in
+meters</strong>. It comes in four sizes: S (24M parameters), B (97M), L (334M) and H+ (872M).</p>
+
+<h3>What exactly is "depth" here?</h3>
+<p>The model outputs <strong>z-depth</strong>: the distance <em>along the camera's viewing
+direction</em>, not the straight-line distance from the lens. The two are equal in the image center
+and differ toward the edges. At the edge of the nuScenes front image (≈32° off-axis) the straight-line
+distance is ≈18% larger.</p>
+<figure>
+<svg viewBox="0 0 640 250" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Helvetica, Arial" font-size="13">
+  <rect width="640" height="250" fill="#fff"/>
+  <rect x="290" y="208" width="60" height="26" rx="4" fill="#1d1d1f"/><text x="320" y="225" fill="#fff" text-anchor="middle" font-size="11">camera</text>
+  <line x1="320" y1="208" x2="320" y2="30" stroke="#999" stroke-dasharray="5 4"/>
+  <text x="326" y="26" fill="#5b5b66">viewing direction (z axis)</text>
+  <circle cx="470" cy="60" r="9" fill="#c2410c"/><text x="484" y="64">object</text>
+  <line x1="320" y1="208" x2="470" y2="60" stroke="#c2410c" stroke-width="2"/>
+  <text x="352" y="128" fill="#c2410c" transform="rotate(-44 352 128)">straight-line distance: 11.2 m</text>
+  <line x1="320" y1="60" x2="470" y2="60" stroke="#999" stroke-dasharray="3 3"/>
+  <line x1="300" y1="208" x2="300" y2="60" stroke="#15803d" stroke-width="3"/>
+  <text x="292" y="140" fill="#15803d" text-anchor="end">z-depth: 10 m</text>
+  <text x="395" y="52" fill="#5b5b66" text-anchor="middle">5 m sideways</text>
+</svg>
+<figcaption>The model reports 10 m for this object (z-depth). Our LiDAR comparison uses the same definition.</figcaption>
+</figure>
+
+<h3>Focal length</h3>
+<p>Turning the network's output into meters requires the camera's focal length in pixels. Apple's
+README recommends passing the calibrated value when it is known, so we pass nuScenes' f<sub>x</sub>
+(≈1266 px). When frames are resized, f<sub>x</sub> is scaled by the same factor (633 px at half
+resolution). The model's own focal-length estimator is therefore not used, unless
+<code>--estimate-focal</code> is given.</p>
+
+<h3>Video mode: windows and overlap</h3>
+<p>The model processes <strong>clips of 16 frames</strong> (<code>window=16</code>). Frames in a
+clip attend to each other, which keeps depth steady over time. Consecutive clips share
+<strong>4 frames</strong> (<code>overlap=4</code>). The two predictions for those shared frames are
+cross-faded with weights 80/20, 60/40, 40/60, 20/80, so there is no jump where clips meet. Cost:
+about 16 ÷ 12 ≈ 1.33× the work of predicting each frame once. This is Apple's default "buffered" mode
+for video files. A side effect: results arrive in bursts, and the first output appears only after
+the first 16 frames are processed.</p>
+<figure>
+<svg viewBox="0 0 640 120" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Helvetica, Arial" font-size="12">
+  <rect width="640" height="120" fill="#fff"/>
+  <text x="10" y="22" fill="#5b5b66">frames →</text>
+  <rect x="20" y="34" width="320" height="22" rx="4" fill="#dbeafe" stroke="#3b82f6"/><text x="180" y="50" text-anchor="middle">clip A: frames 1–16</text>
+  <rect x="260" y="64" width="320" height="22" rx="4" fill="#fde68a" stroke="#d97706"/><text x="420" y="80" text-anchor="middle">clip B: frames 13–28</text>
+  <rect x="260" y="30" width="80" height="60" fill="#c2410c" opacity="0.12"/>
+  <text x="300" y="108" text-anchor="middle" fill="#c2410c">overlap (4 frames): cross-faded</text>
+</svg>
+<figcaption>Buffered video mode with window 16 and overlap 4.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="pipeline">5. Per-frame pipeline (<code>run_nuscenes.py</code>)</h2>
+<ol>
+  <li><strong>Load</strong> the front-camera JPEG. Optionally resize it (<code>--scale</code>, bicubic)
+    and scale f<sub>x</sub> to match.</li>
+  <li><strong>Predict</strong> depth with Depth Pro 2 in video mode (window 16, overlap 4,
+    calibrated focal length).</li>
+  <li><strong>Pick</strong> the LiDAR sweep whose timestamp is closest to the image's.</li>
+  <li><strong>Project</strong> the LiDAR points into the image (section 6) to get, for some pixels, the
+    true z-depth.</li>
+  <li><strong>Score</strong> the prediction at those pixels (section 7).</li>
+  <li><strong>Log</strong> the image, depth, LiDAR, car pose, camera field of view and metrics to Rerun.
+    Write a JSON summary per run.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="gt">6. Building the LiDAR ground truth</h2>
+
+<h3>Coordinate transform</h3>
+<p>Each sensor measures in its own coordinate system. A LiDAR point is moved into the camera's
+system in two hops:</p>
+<pre><code>LiDAR → car (at LiDAR time) → world → car (at camera time) → camera</code></pre>
+<p>Going through fixed world coordinates compensates for <strong>the car's own motion</strong>
+between the LiDAR and camera timestamps (up to ~25 ms apart, ≈25 cm at 36 km/h). Each hop is a 4×4
+rigid transform built from nuScenes' calibration and pose records.</p>
+
+<h3>Which LiDAR points are kept</h3>
+<p>Only <strong>physical limits</strong> are applied:</p>
+<table>
+  <tr><th>Filter</th><th>Why it is needed</th></tr>
+  <tr><td><strong>In front of the camera</strong>: z &gt; 1 m</td>
+      <td>Projection divides by z. A point <em>behind</em> the camera (z &lt; 0) would be flipped
+      into the image mirrored. In one test sweep, <strong>6,095</strong> points from behind the car
+      would have landed in the image, nearly 2× the 3,167 real points in front. The 1 m margin also
+      avoids dividing by near-zero numbers.</td></tr>
+  <tr><td><strong>Inside the image</strong> (field of view)</td>
+      <td>The camera cannot see anything outside its frame.</td></tr>
+</table>
+<figure>
+  <img src="assets/lidar_topdown.png" alt="Top-down view of a LiDAR sweep with the camera field of view">
+  <figcaption>One sweep seen from above. Green points are in front of the camera and inside its
+  image, and are used as ground truth (~3,300 of ~35,000). Gray points are behind the camera
+  plane or outside the field of view. Gray points just ahead of the car but inside the wedge are road
+  below the bottom edge of the image (the wedge shows only the horizontal limits).</figcaption>
+</figure>
+
+<h3>Why project LiDAR into the image, not the other way around?</h3>
+<ul>
+  <li><strong>Fair pairing:</strong> where a LiDAR point lands in the image depends only on LiDAR and
+    calibration, never on the prediction. Going the other way (prediction → 3D → nearest LiDAR point)
+    uses the predicted depth to decide which LiDAR point it is compared with, so the model would help
+    pick its own answer key.</li>
+  <li><strong>Standard practice:</strong> KITTI, nuScenes and DDAD depth benchmarks all evaluate on
+    LiDAR projected into the image, so the numbers are comparable.</li>
+  <li><strong>Cheaper:</strong> ~3,000 projected points instead of 1.44 million back-projected pixels
+    and a 3D nearest-neighbor search.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="metrics">7. Metrics</h2>
+<p>For each frame, every kept LiDAR point gives a pair: <em>g</em> = true z-depth from LiDAR and
+<em>p</em> = the model's depth at the pixel the point lands on (nearest pixel). Pairs are used only if
+<strong>1 m &lt; g &lt; 80 m</strong> (80 m is the usual cap in driving benchmarks) and the prediction is
+finite and positive. Frames with fewer than 50 valid pairs are skipped.</p>
+
+<table>
+  <tr><th>Metric</th><th>Formula (per frame)</th><th>Plain meaning</th><th>Better</th></tr>
+  <tr><td><strong>AbsRel</strong><br>(absolute relative error)</td>
+      <td><span class="formula">mean(|p − g| / g)</span></td>
+      <td>Average error as a fraction of the true distance. 0.15 = off by 15% on average. Errors on
+      far objects aren't over-weighted.</td><td>lower</td></tr>
+  <tr><td><strong>δ &lt; 1.25</strong><br>(threshold accuracy)</td>
+      <td><span class="formula">mean(max(p/g, g/p) &lt; 1.25)</span></td>
+      <td>Share of points where the prediction is within 25% of the truth, too near or too far.
+      0.85 = 85% of points are "roughly right".</td><td>higher</td></tr>
+  <tr><td><strong>RMSE</strong></td>
+      <td><span class="formula">sqrt(mean((p − g)²))</span></td>
+      <td>Typical error in meters. Dominated by large errors on far points, so it reads as "how bad
+      are the bad points".</td><td>lower</td></tr>
+  <tr><td><strong>LiDAR ÷ predicted</strong><br>(scale ratio)</td>
+      <td><span class="formula">median(g / p)</span></td>
+      <td>Overall bias. 1.0 = no bias. 0.88 = the model puts things ~12% too far. Below 1 means too
+      far, above 1 too near.</td><td>closer to 1</td></tr>
+</table>
+
+<h3>Aggregation</h3>
+<ul>
+  <li><strong>Per run</strong> (one model, one scene): AbsRel and δ are the <em>mean</em> over frames.
+    RMSE and the scale ratio are the <em>median</em> over frames, so a single frame with a few huge
+    outliers doesn't dominate.</li>
+  <li><strong>Per model</strong> (<code>compare.py</code>): the mean of the per-scene numbers.</li>
+  <li><strong>No scale alignment:</strong> predictions are scored as-is, in meters. Many depth
+    papers rescale each prediction to match the ground-truth median before scoring. We don't,
+    because metric depth is the point of the model.</li>
+</ul>
+
+<h3>Speed and memory</h3>
+<ul>
+  <li><strong>fps</strong> = frames ÷ time spent waiting for the model's output. This includes JPEG
+    decoding, resizing and GPU synchronization. It excludes model loading, LiDAR processing and
+    Rerun logging.</li>
+  <li><strong>GPU GB</strong> = peak memory allocated by the Metal driver during the run.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="post">8. Post-processing</h2>
+<p>None of these steps change the depth values used for metrics, except where stated.</p>
+<table>
+  <tr><th>Step</th><th>Where</th><th>What and why</th></tr>
+  <tr><td>Resize input + scale f<sub>x</sub></td><td>model input (optional)</td>
+      <td><code>--scale 0.5</code> → 800×450, bicubic. f<sub>x</sub> × 0.5. Speeds up inference; see section 10.
+      <strong>Affects metrics.</strong></td></tr>
+  <tr><td>Nearest-pixel lookup</td><td>metrics</td>
+      <td>LiDAR pixel coordinates are rounded to the nearest pixel to read the prediction. No
+      interpolation.</td></tr>
+  <tr><td>Clip sky / far depth</td><td>visualization only</td>
+      <td>Depth is infinite for sky. Values that are non-finite or ≥ 120 m are set to "invalid"
+      before logging.</td></tr>
+  <tr><td>Depth image format</td><td>Rerun only</td>
+      <td>float16 meters with <code>meter = 1</code>, color range 0–80 m. An earlier version stored
+      centimeters, and Rerun read the 0–80 color range as centimeters, so everything had one color.</td></tr>
+  <tr><td>Inverse-depth coloring</td><td>2D view, video</td>
+      <td>Color = 1/depth with the <code>Spectral_r</code> map (dark red near → blue far), sky white.
+      Inverse depth gives nearby structure more color range. The scale is set from the 99th percentile
+      of the <em>first</em> frame and kept fixed, so colors don't flicker. Copies Apple's
+      Hugging Face demo.</td></tr>
+  <tr><td>Video encoding</td><td>MP4 only</td>
+      <td>Depth image upscaled to the panel size (bicubic). H.264, yuv420p, CRF 18, 12 fps (real time).
+      Labels plus a credit line.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="results">9. Results</h2>
+<p><strong>Protocol:</strong> 4 scenes × the first 64 frames (~5 s each) · full resolution 1600×900 ·
+calibrated focal length · bf16 · window 16 / overlap 4 · one run per configuration · GPU not shared
+with other jobs. Raw results: <code>out/bench64/</code>.</p>
+
+<h3>Average over the 4 scenes</h3>
+<table>
+  <tr><th>Model</th><th class="num">AbsRel ↓</th><th class="num">δ&lt;1.25 ↑</th><th class="num">RMSE (m) ↓</th><th class="num">LiDAR ÷ pred</th><th class="num">fps</th><th class="num">GPU GB</th></tr>
+  <tr class="best"><td><strong>H+</strong></td><td class="num">0.161</td><td class="num">85.5%</td><td class="num">5.23</td><td class="num">0.889</td><td class="num">0.12</td><td class="num">19.2</td></tr>
+  <tr><td>L</td><td class="num">0.179</td><td class="num">83.2%</td><td class="num">5.28</td><td class="num">0.877</td><td class="num">0.23</td><td class="num">12.0</td></tr>
+  <tr><td>B</td><td class="num">0.182</td><td class="num">79.9%</td><td class="num">5.85</td><td class="num">0.888</td><td class="num">0.67</td><td class="num">12.0</td></tr>
+  <tr><td>S</td><td class="num">0.207</td><td class="num">72.8%</td><td class="num">6.38</td><td class="num">0.854</td><td class="num">1.47</td><td class="num">6.8</td></tr>
+</table>
+
+<h3>Per scene (AbsRel / δ&lt;1.25)</h3>
+<table>
+  <tr><th>Model</th><th class="num">0061 day</th><th class="num">0655 parking</th><th class="num">0796 busy</th><th class="num">1077 night</th></tr>
+  <tr><td>S</td><td class="num">0.139 / 0.92</td><td class="num">0.141 / 0.92</td><td class="num">0.200 / 0.80</td><td class="num">0.348 / 0.27</td></tr>
+  <tr><td>B</td><td class="num">0.134 / 0.93</td><td class="num">0.123 / 0.95</td><td class="num">0.220 / 0.71</td><td class="num">0.250 / 0.60</td></tr>
+  <tr><td>L</td><td class="num">0.163 / 0.91</td><td class="num">0.148 / 0.96</td><td class="num">0.175 / 0.80</td><td class="num">0.232 / 0.66</td></tr>
+  <tr><td>H+</td><td class="num">0.134 / 0.95</td><td class="num">0.131 / 0.95</td><td class="num">0.142 / 0.91</td><td class="num">0.236 / 0.61</td></tr>
+</table>
+
+<h3>Findings</h3>
+<ol>
+  <li><strong>H+ is the most accurate and the most consistent.</strong> It is best or tied on 3 of 4
+    scenes and clearly best on the busy scene (91% within 25% vs ≤ 80% for the others).</li>
+  <li><strong>B and L are statistically indistinguishable here.</strong> With 4 scenes the gap is
+    within noise, and B is 3× faster.</li>
+  <li><strong>Every model overestimates distance by ~11–15%</strong> (scale ratio 0.85–0.89), even
+    with the true focal length. Because the bias is consistent, one fixed correction factor would
+    remove much of it. We haven't applied one.</li>
+  <li><strong>Night is the hardest condition.</strong> S collapses (27% within 25%), and the larger
+    models reach 60–66%. A separate full-length night run (H+, half res, all 240 frames of
+    <code>scene-1077</code>) gave AbsRel 0.217 and δ&lt;1.25 = 74%. It used a different resolution and frame range, so it
+    is not directly comparable with the table above.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="speed">10. Speed experiments (<code>scene-0796</code>, 64 frames)</h2>
+<table>
+  <tr><th>Setup</th><th class="num">fps</th><th class="num">AbsRel</th><th class="num">δ&lt;1.25</th><th>Measurement quality</th></tr>
+  <tr><td>H+, full res (1600×900)</td><td class="num">0.12</td><td class="num">0.142</td><td class="num">90.9%</td><td>clean (benchmark)</td></tr>
+  <tr class="best"><td><strong>H+, half res (800×450)</strong></td><td class="num">1.3–1.5</td><td class="num">0.144</td><td class="num">91.1%</td><td>clean (repeated)</td></tr>
+  <tr><td>H+, 0.75× res (1200×675)</td><td class="num">0.30</td><td class="num">0.157</td><td class="num">86.5%</td><td><span class="tag">uncertain</span>GPU may have been shared</td></tr>
+  <tr><td>B, full res</td><td class="num">0.67</td><td class="num">0.220</td><td class="num">71.4%</td><td>clean (benchmark)</td></tr>
+  <tr><td>B, half res</td><td class="num">5.4</td><td class="num">0.176</td><td class="num">86.3%</td><td><span class="tag">uncertain</span>GPU may have been shared</td></tr>
+  <tr><td>B, full res, fp16</td><td class="num">0.50</td><td class="num">0.216</td><td class="num">71.3%</td><td><span class="tag">uncertain</span>GPU may have been shared</td></tr>
+</table>
+<div class="box assume">
+  <strong>Caveat on speed numbers</strong>
+  Some speed runs overlapped with another GPU job started from a terminal. One H+ half-res run measured
+  0.47 fps under that contention vs 1.3–1.5 fps alone. Rows marked <em>uncertain</em> may be slower than
+  the true value. Their <em>accuracy</em> numbers are unaffected.
+</div>
+<ul>
+  <li><strong>Half resolution is the main speed lever.</strong> For H+ it gave the same accuracy and the
+    same scale ratio (0.914 vs 0.913) at ~11× the speed. Apple warns that resizing can lose edge
+    detail and shift scale. We saw no scale shift, but edge sharpness isn't captured by sparse LiDAR
+    metrics. For the sharpest output, use full resolution.</li>
+  <li><strong>B at half resolution scored better than B at full resolution</strong> on this scene.
+    That is one scene only; treat it as a lead, not a rule.</li>
+  <li><strong>fp16 did not speed things up</strong> versus bf16 on this Mac (with the caveat above).</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="assumptions">11. Assumptions &amp; limitations</h2>
+<table>
+  <tr><th>Assumption / limitation</th><th>Effect on results</th></tr>
+  <tr><td><strong>Images are undistorted.</strong> nuScenes provides only a 3×3 intrinsic matrix
+      and no distortion coefficients, so we treat images as undistorted, as Apple's README
+      requires for a known focal length.</td><td>Small projection errors near image corners if this is wrong.</td></tr>
+  <tr><td><strong>Nearest LiDAR sweep in time</strong>, at most ~25 ms from the image. The car's own
+      motion is compensated through poses; <em>other</em> moving objects are not.</td>
+      <td>Moving cars and pedestrians can be off by tens of centimeters, more for oncoming traffic.</td></tr>
+  <tr><td><strong>Parallax / occlusion is not filtered.</strong> The LiDAR sits 0.75 m behind and
+      0.34 m above the camera, so it sometimes sees background just past the edge of a near object.
+      Such points land on the near object's pixels with a far "true" depth.</td>
+      <td>Penalizes correct predictions at object edges. We estimated roughly 5–7% of points are
+      affected (see section 12). Removing them lowered AbsRel by 0.003–0.010 depending on the model.</td></tr>
+  <tr><td><strong>LiDAR is sparse</strong> (~3,000 points per image, 32 scan lines) and has no returns
+      from sky or glass.</td><td>Metrics can't measure edge sharpness or thin structures, and say
+      nothing about the sky.</td></tr>
+  <tr><td><strong>Range 1–80 m only.</strong></td><td>Accuracy beyond 80 m is not measured.</td></tr>
+  <tr><td><strong>Calibration and timestamps are taken as exact.</strong></td><td>Any error shifts LiDAR
+      points by a few pixels, mostly affecting edges.</td></tr>
+  <tr><td><strong>Small sample:</strong> 4 scenes × 64 frames, one run per configuration, no
+      confidence intervals.</td><td>Differences of ~0.01–0.02 AbsRel (e.g. B vs L) aren't
+      reliable.</td></tr>
+  <tr><td><strong>Scale ratio is sensitive to the focal length.</strong> Depth scales with f<sub>x</sub>,
+      and a 10% focal error gives a 10% depth error.</td><td>The ~12% bias could partly come from the
+      model or partly from calibration conventions; we have not separated the two.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="removed">12. What we tried and removed</h2>
+<div class="box">
+  <strong>Occlusion (parallax) filter: built, tested, then deliberately removed</strong>
+  We implemented a line-of-sight test that removed a LiDAR point when a clearly nearer point next to it
+  in the image reached the camera's view line. It removed ~5–7% of points and improved scores slightly
+  (H+ half res: AbsRel 0.144 → 0.134). Spot checks looked right: far wall points on a statue,
+  background behind a mirror. However, it relied on assumptions we could not verify: objects standing
+  on the ground, the extent of objects between scan lines, and no overhangs. There is no ground truth
+  for visibility in nuScenes. We removed it so that every reported number rests only on physical
+  limits. Re-adding it would require a measured validation, such as a hand-labeled audit of removed
+  points.
+</div>
+<p>An earlier, simpler version of the same filter (a plain "nearer point nearby" window) wrongly
+removed visible points on a hedge. This failure is why the line-of-sight rule was introduced, and
+why we didn't trust either version without validation.</p>
+
+<!-- ============================================================ -->
+<h2 id="viz">13. Visualization &amp; video</h2>
+<h3>Rerun recording (<code>.rrd</code>)</h3>
+<table>
+  <tr><th>View</th><th>Shows</th></tr>
+  <tr><td><strong>3D: pred depth + LiDAR</strong></td><td>Car pose over time. Predicted depth as a point
+      cloud. LiDAR: <span style="color:#15803d"><strong>green</strong></span> = used as ground truth,
+      gray = behind the camera or outside its view. <strong style="color:#a16207">Yellow lines</strong>
+      = camera field of view, with rectangles at 10, 20, 40 and 80 m.</td></tr>
+  <tr><td><strong>RGB + LiDAR GT</strong></td><td>Camera image with the projected LiDAR points, colored
+      by true distance.</td></tr>
+  <tr><td><strong>Depth Pro 2</strong></td><td>Inverse-depth colored prediction (same style as the video).</td></tr>
+  <tr><td><strong>metrics vs LiDAR</strong></td><td>Per-frame AbsRel, δ&lt;1.25 and scale ratio over time.
+      Point counts and focal length are under <code>stats/</code>.</td></tr>
+</table>
+<h3>Shareable video (<code>make_video.py</code>)</h3>
+<p>Input on top, Depth Pro 2 below, 1280×1496 (close to square, suited to social feeds), H.264,
+12 fps = real time. Default model H+ at half resolution.</p>
+
+<!-- ============================================================ -->
+<h2 id="reproduce">14. Reproduce</h2>
+<pre><code>cd depthpro2_cars
+source .envrc.sh                      # keep caches inside the project
+
+# one scene → Rerun (opens a live viewer)
+.venv/bin/python run_nuscenes.py --model depthpro2-h --scale 0.5 --scene scene-0796 --spawn
+
+# open a saved recording (use the project's viewer, not an older one on PATH)
+.venv/bin/rerun out/viz/scene-0796_depthpro2-h_x0.5.rrd
+
+# benchmark (≈65 min, mostly H+ at full resolution) and table
+MAX_FRAMES=64 OUT=out/bench64 ./bench.sh depthpro2-s depthpro2-b depthpro2-l depthpro2-h
+.venv/bin/python compare.py out/bench64
+
+# video
+.venv/bin/python make_video.py --scene scene-0796   # → out/video/scene-0796_depthpro2-h.mp4</code></pre>
+
+<h3>Main options of <code>run_nuscenes.py</code></h3>
+<table>
+  <tr><th>Option</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>--model</code></td><td>depthpro2-s</td><td>depthpro2-s / -b / -l / -h</td></tr>
+  <tr><td><code>--scene</code></td><td>scene-0061</td><td>any of the 10 mini scenes</td></tr>
+  <tr><td><code>--scale</code></td><td>1.0</td><td>input resize factor (0.5 = 800×450); f<sub>x</sub> is scaled too</td></tr>
+  <tr><td><code>--max-frames</code></td><td>0 (all)</td><td>limit frames (the benchmark uses 64)</td></tr>
+  <tr><td><code>--window</code> / <code>--overlap</code></td><td>16 / 4</td><td>video clip length / shared frames</td></tr>
+  <tr><td><code>--precision</code></td><td>bf16</td><td>bf16 / fp16 / fp32</td></tr>
+  <tr><td><code>--estimate-focal</code></td><td>off</td><td>ignore calibration; use the model's focal estimator</td></tr>
+  <tr><td><code>--no-rrd</code> / <code>--spawn</code></td><td>off</td><td>skip saving the recording / stream to a live viewer</td></tr>
+</table>
+
+<h3>Licenses</h3>
+<p>Depth Pro 2 weights: Apple Machine Learning Research Model license, research use only.
+nuScenes: CC BY-NC-SA 4.0 (non-commercial, attribution required). This project is used for research
+only.</p>
+
+</main>
+</body>
+</html>
