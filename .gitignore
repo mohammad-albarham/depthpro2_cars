@@ -1,0 +1,17 @@
+# environments & caches
+.venv/
+.cache/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+
+# large data & outputs (nuScenes/KITTI have their own licenses)
+data/
+out/
+*.rrd
+*.mp4
+*.zip
+*.tgz
+*.pt
+*.pth

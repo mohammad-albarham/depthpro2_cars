@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>depthpro2.demo</string>
+    <key>CFBundleName</key>
+    <string>Depth Pro 2 demo</string>
+    <key>NSCameraUseContinuityCameraDeviceType</key>
+    <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>The Depth Pro 2 demo estimates depth from the camera feed.</string>
+</dict>
+</plist>

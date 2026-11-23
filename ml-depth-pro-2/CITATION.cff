@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you find our work useful, please cite the following paper."
+title: "Depth Pro 2: Sharp and Temporally Consistent Metric Monocular Depth"
+abstract: "We present Depth Pro 2, an approach to estimating dense metric depth for images and video at full resolution. By analyzing prior methods for monocular depth estimation, we find that they commonly trade off temporal consistency and boundary sharpness: multi-frame methods favor consistency, while single-frame methods favor sharpness. To overcome this trade-off, we train a single, scalable network that processes both images and video and predicts depth maps at native resolution. Depth Pro 2 produces depth maps that are metrically accurate, sharp, and temporally consistent all at once, outperforming prior work in all of these dimensions. We release a family of models that define a new Pareto frontier in terms of metric accuracy, sharpness, temporal consistency, and runtime."
+version: "0.1"
+authors: &authors
+  - given-names: Peiyun
+    family-names: Hu
+  - given-names: Marko
+    family-names: Mihajlovic
+  - given-names: Lyndon
+    family-names: Duong
+  - given-names: Lahav
+    family-names: Lipson
+  - given-names: Wei
+    family-names: Dong
+  - given-names: Amaël
+    family-names: Delaunoy
+  - given-names: Stephan R.
+    family-names: Richter
+  - given-names: Vladlen
+    family-names: Koltun
+preferred-citation:
+  type: article
+  title: "Depth Pro 2: Sharp and Temporally Consistent Metric Monocular Depth"
+  authors: *authors
+  journal: "arXiv preprint arXiv:2611.26603"
+  year: 2026
+  url: "https://arxiv.org/abs/2611.26603"

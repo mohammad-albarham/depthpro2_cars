@@ -1,0 +1,11 @@
+__pycache__/
+*.egg-info/
+.venv/
+.ruff_cache/
+uv.lock
+checkpoints
+*.pt
+.DS_Store
+*.mlpackage
+out/
+*.log

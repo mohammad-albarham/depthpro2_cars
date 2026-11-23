@@ -1,0 +1,13 @@
+[project]
+name = "depthpro2-cars"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "depth_pro_2",
+  "rerun-sdk>=0.24",
+  "numpy",
+  "pillow",
+]
+
+[tool.uv.sources]
+depth_pro_2 = { path = "ml-depth-pro-2", editable = true }
