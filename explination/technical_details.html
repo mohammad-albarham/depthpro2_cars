@@ -477,10 +477,29 @@ MAX_FRAMES=64 OUT=out/bench64 ./bench.sh depthpro2-s depthpro2-b depthpro2-l dep
   <tr><td><code>--no-rrd</code> / <code>--spawn</code></td><td>off</td><td>skip saving the recording / stream to a live viewer</td></tr>
 </table>
 
+<h3>Getting the data and weights</h3>
+<pre><code>.venv/bin/python download_data.py --nuscenes-mini --accept-nuscenes-terms   # after reading the nuScenes Terms of Use
+.venv/bin/python download_data.py --weights h                               # optional: pre-fetch + verify H+ weights</code></pre>
+<p>Downloads resume if interrupted and are checked against the server's file size. This guards against
+the truncated-download failure seen once during this project.</p>
+
 <h3>Licenses</h3>
-<p>Depth Pro 2 weights: Apple Machine Learning Research Model license, research use only.
-nuScenes: CC BY-NC-SA 4.0 (non-commercial, attribution required). This project is used for research
-only.</p>
+<table>
+  <tr><th>Part</th><th>License</th><th>In the repository?</th></tr>
+  <tr><td>This project's own code and docs</td><td>MIT (<code>LICENSE</code>)</td><td>Included</td></tr>
+  <tr><td>Depth Pro 2 code (Apple)</td><td>Apple license (<code>ml-depth-pro-2/LICENSE</code>)</td><td>Included, unmodified</td></tr>
+  <tr><td>Depth Pro 2 weights (Apple)</td><td>Apple Machine Learning Research Model License: research use only</td><td>No, downloaded</td></tr>
+  <tr><td>nuScenes v1.0-mini (Motional)</td><td><a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> + <a href="https://www.nuscenes.org/terms-of-use">nuScenes Terms of Use</a>: non-commercial. The terms also cover derived data such as tables and charts</td><td>No, downloaded</td></tr>
+  <tr><td>Figures on this page</td><td>Adapted from nuScenes: CC BY-NC-SA 4.0 (inherited)</td><td>Included</td></tr>
+  <tr><td>Python packages</td><td>Mostly BSD/MIT/Apache. PyAV's wheel bundles GPL codecs (x264/x265), used locally only</td><td>No, pip-installed</td></tr>
+</table>
+<p><strong>Attribution for the figures</strong> (<code>assets/video_frame.jpg</code>, <code>assets/lidar_topdown.png</code>): adapted
+from the <a href="https://www.nuscenes.org/">nuScenes</a> dataset (Motional AD Inc.), licensed under CC BY-NC-SA 4.0.
+Changes: Depth Pro 2 predictions rendered next to a camera frame, and a top-down plot of one LiDAR sweep. Shared under
+the same license. The result tables are derived from nuScenes and are likewise for non-commercial use.</p>
+<p>Not affiliated with or endorsed by Apple or Motional. Full per-component list and BibTeX:
+<code>THIRD_PARTY_NOTICES.md</code>. Please cite Depth Pro 2 (arXiv:2611.26603) and nuScenes (Caesar et al.,
+arXiv:1903.11027).</p>
 
 </main>
 </body>

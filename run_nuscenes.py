@@ -30,8 +30,8 @@ from depth_pro_2 import create_model_and_transforms
 
 MAX_DEPTH_M = 120.0  # clip predictions (sky is inf) before logging
 LIDAR_ROLES = (  # (entity name, color, radius) for 3D LiDAR points
-    ("outside_fov", [150, 150, 150], 0.03),  # behind the camera or outside the image
-    ("used_as_gt", [40, 200, 90], 0.05),  # in front of the camera and inside the image
+    ("outside_fov", [150, 150, 150], 0.025),  # behind the camera or outside the image
+    ("used_as_gt", [40, 220, 90], 0.09),  # in front of the camera and inside the image
 )
 METRIC_KEYS = ("abs_rel", "delta1", "scale_gt_over_pred")
 
@@ -63,6 +63,12 @@ def rr_quat(q_wxyz) -> rr.Quaternion:
 class NuScenes:
     def __init__(self, root: Path, version: str = "v1.0-mini"):
         self.root = root
+        if not (root / version / "scene.json").exists():
+            raise SystemExit(
+                f"nuScenes {version} not found in {root}/.\n"
+                "Get it with:  python download_data.py --nuscenes-mini --accept-nuscenes-terms\n"
+                "(nuScenes is CC BY-NC-SA 4.0 + Terms of Use: https://www.nuscenes.org/terms-of-use)"
+            )
 
         def load(name):
             return {r["token"]: r for r in json.load(open(root / version / f"{name}.json"))}
@@ -204,7 +210,16 @@ def main():
     cam_path = "world/ego/cam_front"
     blueprint = rrb.Blueprint(
         rrb.Horizontal(
-            rrb.Spatial3DView(name="3D: pred depth + LiDAR", origin="world"),
+            # chase camera: the view lives in the car's frame (x fwd, y left, z up), so the eye
+            # stays behind and above the car while the world (LiDAR, predictions) moves past
+            rrb.Spatial3DView(
+                name="3D: pred depth + LiDAR",
+                origin="world/ego",
+                contents="/world/**",
+                eye_controls=rrb.EyeControls3D(
+                    position=[-14.0, 0.0, 9.0], look_target=[18.0, 0.0, 0.0], eye_up=[0.0, 0.0, 1.0]
+                ),
+            ),
             rrb.Vertical(
                 rrb.Spatial2DView(
                     name="RGB + LiDAR GT",
