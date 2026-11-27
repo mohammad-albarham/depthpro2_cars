@@ -6,6 +6,8 @@ videos.
 
 - Full write-up (method, metrics, assumptions, results): [`explination/technical_details.html`](explination/technical_details.html)
 - Instructions for coding agents: [`AGENTS.md`](AGENTS.md)
+- Demo video (the full Rerun window, Depth Pro 2 H+ at full resolution, nuScenes scene-0796):
+  [`media/scene-0796_depthpro2-h_rerun.mp4`](media/scene-0796_depthpro2-h_rerun.mp4)
 
 ## Setup
 
@@ -110,6 +112,7 @@ assumptions and limitations.
 | `ml-depth-pro-2/` | Apple's code (vendored, unmodified) |
 | `out/` | Results, recordings, videos (`out/bench64/` = reference benchmark) |
 | `explination/` | Technical write-up and figures |
+| `media/` | Demo video (nuScenes-derived, see licenses) |
 
 ## Licenses and citation
 
@@ -121,7 +124,7 @@ Full list per component, with obligations: **[`THIRD_PARTY_NOTICES.md`](THIRD_PA
 | Depth Pro 2 code (`ml-depth-pro-2/`, Apple) | Apple license ([`LICENSE`](ml-depth-pro-2/LICENSE)) | Included, unmodified |
 | Depth Pro 2 weights (Apple) | Apple ML Research Model License ([`LICENSE_MODEL`](ml-depth-pro-2/LICENSE_MODEL)): **research use only** | No, downloaded |
 | nuScenes v1.0-mini (Motional) | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) + [nuScenes Terms of Use](https://www.nuscenes.org/terms-of-use): **non-commercial** | No, downloaded |
-| Figures in `explination/assets/` | Adapted from nuScenes: CC BY-NC-SA 4.0 (same license, attribution in the notices file) | Included |
+| Figures in `explination/assets/`, demo video in `media/` | Adapted from nuScenes: CC BY-NC-SA 4.0 (same license, attribution in the notices file) | Included |
 | Python packages (PyTorch, Rerun, PyAV, …) | Mostly BSD/MIT/Apache. PyAV's wheel bundles GPL codecs (x264/x265); see the notices file | No, pip-installed |
 
 Not affiliated with or endorsed by Apple or Motional. If you use this work, cite Depth Pro 2

@@ -2,7 +2,7 @@
 
 This project's own code and documentation are under the [MIT License](LICENSE). The MIT License
 does **not** cover `ml-depth-pro-2/`, the model weights, nuScenes data, or the nuScenes-derived
-figures in `explination/assets/`. Those keep the licenses listed below.
+figures in `explination/assets/` and the demo video in `media/`. Those keep the licenses listed below.
 
 This project combines code, a model and a dataset from other parties. Each keeps its own license.
 **Only the items marked "included" are in this repository.** Everything else is downloaded by the
@@ -16,11 +16,14 @@ user and is not redistributed here.
 | **Depth Pro 2 weights** (Apple) | Model parameters | [Apple Machine Learning Research Model License](ml-depth-pro-2/LICENSE_MODEL): **research use only**, no commercial use | No. Downloaded at run time (`download_data.py --weights`) | Research use only. If you redistribute the weights or a modified/fine-tuned model, include the license and the attribution notice it specifies |
 | **nuScenes v1.0-mini** (Motional) | Camera images, LiDAR, calibration | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode) **plus** the [nuScenes Terms of Use](https://www.nuscenes.org/terms-of-use) (non-commercial) | No. Downloaded by the user (`download_data.py --nuscenes-mini`) | Non-commercial use. Attribute nuScenes and cite the paper. Share adaptations under the same license. Don't imply Motional endorses your work. Per the Terms of Use, derived data such as tables and charts is also covered |
 | **Figures derived from nuScenes**: [`explination/assets/video_frame.jpg`](explination/assets/video_frame.jpg), [`explination/assets/lidar_topdown.png`](explination/assets/lidar_topdown.png) | Illustrations in the write-up | CC BY-NC-SA 4.0 + nuScenes Terms of Use (inherited) | **Included** | Attribution below. Shared under the same license, non-commercial |
+| **Demo video derived from nuScenes**: [`media/scene-0796_depthpro2-h_rerun.mp4`](media/scene-0796_depthpro2-h_rerun.mp4) | Screen recording of the Rerun viewer | CC BY-NC-SA 4.0 + nuScenes Terms of Use (inherited) | **Included** | Attribution below. Shared under the same license, non-commercial |
 
-**Attribution for the included figures:** adapted from the nuScenes dataset (Motional AD Inc.),
+**Attribution for the included figures and video:** adapted from the nuScenes dataset (Motional AD Inc.),
 <https://www.nuscenes.org>, licensed under CC BY-NC-SA 4.0. Changes: Depth Pro 2 depth predictions
 rendered next to a camera frame (`video_frame.jpg`), and a top-down plot of one LiDAR sweep with the
-camera's field of view (`lidar_topdown.png`). Motional does not endorse this project.
+camera's field of view (`lidar_topdown.png`), and a recording of the Rerun viewer over nuScenes
+scene-0796 showing camera frames, projected LiDAR, Depth Pro 2 depth and per-frame metrics
+(`media/scene-0796_depthpro2-h_rerun.mp4`). Motional does not endorse this project.
 
 ## Python packages (installed with pip, not redistributed)
 
