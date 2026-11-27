@@ -6,8 +6,17 @@ videos.
 
 - Full write-up (method, metrics, assumptions, results): [`explination/technical_details.html`](explination/technical_details.html)
 - Instructions for coding agents: [`AGENTS.md`](AGENTS.md)
-- Demo video (the full Rerun window, Depth Pro 2 H+ at full resolution, nuScenes scene-0796):
-  [`media/scene-0796_depthpro2-h_rerun.mp4`](media/scene-0796_depthpro2-h_rerun.mp4)
+
+## Demo
+
+[![Rerun viewer: Depth Pro 2 H+ on nuScenes scene-0796](media/scene-0796_depthpro2-h_rerun_preview.webp)](media/scene-0796_depthpro2-h_rerun.mp4)
+
+Depth Pro 2 H+ at full resolution on nuScenes scene-0796, recorded from the Rerun viewer.
+Left: predicted depth as a 3D point cloud, the camera's field of view (yellow), LiDAR used as
+ground truth (green: in front of the camera and inside the image) and LiDAR filtered out (gray).
+Right: camera image, colored depth, and per-frame metrics against LiDAR.
+The preview is half size at 6 fps. **[Full video (1920×1080, 12 fps)](media/scene-0796_depthpro2-h_rerun.mp4)**.
+Data: nuScenes (CC BY-NC-SA 4.0), see [licenses](#licenses-and-citation).
 
 ## Setup
 
@@ -112,7 +121,7 @@ assumptions and limitations.
 | `ml-depth-pro-2/` | Apple's code (vendored, unmodified) |
 | `out/` | Results, recordings, videos (`out/bench64/` = reference benchmark) |
 | `explination/` | Technical write-up and figures |
-| `media/` | Demo video (nuScenes-derived, see licenses) |
+| `media/` | Demo video and its preview (nuScenes-derived, see licenses) |
 
 ## Licenses and citation
 
